@@ -52,20 +52,39 @@ public abstract class ParserResult {
         public boolean isMatched() {
             return true;
         }
+
+        public String substring(String text) {
+            return text.substring(idx, idx + length);
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder("AstNode{idx=").append(idx)
+                    .append(", length=").append(length).append(", children=[");
+            int i = 0;
+            for (AstNode child: children) {
+                if (i++ > 0) {
+                    sb.append(", ");
+                }
+                sb.append(child.toString());
+            }
+            sb.append("]}");
+            return sb.toString();
+        }
     }
 
-    public static class ExpectingFailure extends ParserResult {
+    public static class Failure extends ParserResult {
 
         int idx;
         List<String> expectedTokens;
 
-        public ExpectingFailure(int idx, String expectedToken) {
+        public Failure(int idx, String expectedToken) {
             this.idx = idx;
             this.expectedTokens = new ArrayList<String>(1);
             this.expectedTokens.add(expectedToken);
         }
 
-        public ExpectingFailure(int idx, List<String> expectedTokens) {
+        public Failure(int idx, List<String> expectedTokens) {
             this.idx = idx;
             this.expectedTokens = expectedTokens;
         }
@@ -86,12 +105,12 @@ public abstract class ParserResult {
 
         /**
          * Merges two failures, giving a single representative result.
-         * 
+         *
          * @param e1 may be null
          * @param e2 may be null
          * @return a new ExpectingFailure instance (unless both e1 and e2 are null, in which case it returns null)
          */
-        public static ExpectingFailure merge(ExpectingFailure e1, ExpectingFailure e2) {
+        public static Failure merge(Failure e1, Failure e2) {
             if (e1 == null) {
                 return e2;
             } else if (e2 == null || e1.getIdx() > e2.getIdx()) {
@@ -103,7 +122,12 @@ public abstract class ParserResult {
                     + e2.getExpectedTokens().size());
             expectedTokens.addAll(e1.getExpectedTokens());
             expectedTokens.addAll(e2.getExpectedTokens());
-            return new ExpectingFailure(e1.getIdx(), expectedTokens);
+            return new Failure(e1.getIdx(), expectedTokens);
+        }
+
+        @Override
+        public String toString() {
+            return "Failure{" + "idx=" + idx + ", expectedTokens=" + expectedTokens + '}';
         }
     }
 }
