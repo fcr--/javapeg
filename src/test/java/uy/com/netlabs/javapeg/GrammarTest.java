@@ -147,4 +147,17 @@ public class GrammarTest extends TestCase {
         assertFalse(g.match("aaabbbc").isMatched());
         assertFalse(g.match("aaacbbb").isMatched());
     }
+    
+    public void testLeftRecursion() {
+        Exception ex = null;
+        try {
+            Grammar.MutableReferenceGrammar g = new Grammar.MutableReferenceGrammar();
+            g.setGrammar(new Grammar.CatGrammar(g, new Grammar.TextGrammar("never reached")));
+            g.match("never reached");
+        } catch (IllegalStateException e) {
+            ex = e;
+        }
+        assertNotNull(ex);
+        assertEquals("Left recursion detected.", ex.getMessage());
+    }
 }

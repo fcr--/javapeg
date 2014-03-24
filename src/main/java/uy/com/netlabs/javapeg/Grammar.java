@@ -49,8 +49,15 @@ public abstract class Grammar<T> {
     }
 
     protected ParserResult match(String text, int idx, Options opts) {
+        Integer prevIdx = opts.positionsForLeftRecursionDetection.get(this);
+        if (prevIdx != null && prevIdx == idx) {
+            throw new IllegalStateException("Left recursion detected.");
+        }
+        opts.positionsForLeftRecursionDetection.put(this, idx);
         if (opts.processedTags == null) {
-            return matchImpl(text, idx, opts);
+            ParserResult res = matchImpl(text, idx, opts);
+            opts.positionsForLeftRecursionDetection.put(this, prevIdx);
+            return res;
         }
         List<T> oldTags = opts.processedTags;
         ParserResult res = matchImpl(text, idx, opts);
@@ -62,6 +69,7 @@ public abstract class Grammar<T> {
         } else {
             opts.processedTags = oldTags;
         }
+        opts.positionsForLeftRecursionDetection.put(this, prevIdx);
         return res;
     }
 
@@ -96,6 +104,7 @@ public abstract class Grammar<T> {
     protected class Options {
 
         public List<T> processedTags = null;
+        public HashMap<Grammar<T>, Integer> positionsForLeftRecursionDetection = new HashMap<>();
     }
 
     //======================================================================
