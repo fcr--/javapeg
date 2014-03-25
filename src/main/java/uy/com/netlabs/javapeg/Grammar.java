@@ -370,4 +370,19 @@ public abstract class Grammar<T> {
             return child.hasEpsilon();
         }
     }
+
+    public static class AltTextsGrammar<T> extends AltGrammar<T> {
+
+        public AltTextsGrammar(String... strings) {
+            super(AltTextsGrammar.<T>mapStrings(strings));
+        }
+
+        private static <T> Grammar<T>[] mapStrings(String... strings) {
+            Grammar<T>[] children = new Grammar[strings.length];
+            for (int i = 0; i < strings.length; i++) {
+                children[i] = new TextGrammar<>(strings[i]);
+            }
+            return children;
+        }
+    }
 }
