@@ -1,10 +1,12 @@
 package uy.com.netlabs.javapeg;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import junit.framework.Test;
 import junit.framework.TestCase;
 import junit.framework.TestSuite;
+import uy.com.netlabs.javapeg.util.Pair;
 
 /**
  * Unit test for simple library.
@@ -34,7 +36,7 @@ public class GrammarTest extends TestCase {
         assertFalse(g.match("fo").isMatched());
         assertFalse(g.hasEpsilon());
     }
-    
+
     public void testDotGrammar() {
         Grammar g = new Grammar.DotGrammar();
         assertTrue(g.match("a").isMatched());
@@ -42,7 +44,7 @@ public class GrammarTest extends TestCase {
         assertFalse(g.match("").isMatched());
         assertFalse(g.hasEpsilon());
     }
-    
+
     public void testCatGrammar() {
         Grammar g = new Grammar.CatGrammar(
             new Grammar.TextGrammar("a"),
@@ -64,7 +66,7 @@ public class GrammarTest extends TestCase {
             new Grammar.TextGrammar(""),
         }).hasEpsilon());
     }
-    
+
     public void testAltGrammar() {
         Grammar g = new Grammar.AltGrammar(
             new Grammar.TextGrammar("a"),
@@ -94,19 +96,20 @@ public class GrammarTest extends TestCase {
             new Grammar.TextGrammar(""),
         }).hasEpsilon());
     }
-    
+
     public void testNumberGrammar() {
+        final List<String> reducedTexts = new ArrayList<>(2);
         ReduceFunction<Integer> parseNumber = new ReduceFunction<Integer>() {
             @Override
             public List<Integer> reduce(String text, ParserResult.AstNode node, List<Integer> immutableProcessedTags) {
-                System.out.println("text="+text+", sub="+node.substring(text));
                 List<Integer> res = new ArrayList<>();
                 res.add(Integer.parseInt(node.substring(text)));
+                reducedTexts.add(node.substring(text));
                 return res;
             }
         };
         // T type is required on leaf grammars
-        Grammar<Integer> g = 
+        Grammar<Integer> g =
             new Grammar.CatGrammar<>(
                 new Grammar.QuantGrammar<>(1, Integer.MAX_VALUE,
                     new Grammar.RangeGrammar<Integer>('0', '9')
@@ -115,21 +118,21 @@ public class GrammarTest extends TestCase {
                     new Grammar.DotGrammar<Integer>()
                 )
             );
-        ArrayList<Integer> tags = new ArrayList<>();
-        ParserResult m = g.match("42", tags);
-        assertTrue(m.isMatched());
-        assertTrue(m instanceof ParserResult.AstNode);
-        ParserResult.AstNode node = (ParserResult.AstNode) m;
+        Pair<ParserResult, List<Integer>> m = g.matchProcessing("42");
+        assertTrue(m.getLeft().isMatched());
+        assertTrue(m.getLeft() instanceof ParserResult.AstNode);
+        ParserResult.AstNode node = (ParserResult.AstNode) m.getLeft();
         assertEquals(2, node.getLength());
-        assertEquals(1, tags.size());
-        assertEquals(Integer.valueOf(42), tags.get(0));
-        assertFalse(g.match("300!", tags).isMatched());
-        assertEquals(0, tags.size());
+        assertEquals(1, m.getRight().size());
+        assertEquals(Integer.valueOf(42), m.getRight().get(0));
+        assertFalse((m = g.matchProcessing("300!")).getLeft().isMatched());
+        assertEquals(0, m.getRight().size());
+        assertEquals(Arrays.asList(new String[]{"42", "300"}), reducedTexts);
     }
-    
+
     public void testAaaBbb() {
         Grammar.MutableReferenceGrammar abThunk = new Grammar.MutableReferenceGrammar<>();
-        Grammar ab = new Grammar.QuantGrammar(0, 1, 
+        Grammar ab = new Grammar.QuantGrammar(0, 1,
             new Grammar.CatGrammar(
                 new Grammar.TextGrammar("a"),
                 abThunk,
@@ -139,7 +142,8 @@ public class GrammarTest extends TestCase {
         abThunk.setGrammar(ab);
         Grammar g = new Grammar.CatGrammar(ab, new Grammar.NegativeLookAhead(new Grammar.DotGrammar()));
         assertTrue(g.match("").isMatched());
-        assertTrue(g.match("ab", new ArrayList()).isMatched());
+        Pair<ParserResult, List> m = g.matchProcessing("ab");
+        assertTrue(m.getLeft().isMatched());
         assertTrue(g.match("aabb").isMatched());
         assertTrue(g.match("aaabbb").isMatched());
         assertFalse(g.match("aaabb").isMatched());
@@ -147,7 +151,7 @@ public class GrammarTest extends TestCase {
         assertFalse(g.match("aaabbbc").isMatched());
         assertFalse(g.match("aaacbbb").isMatched());
     }
-    
+
     public void testLeftRecursion() {
         Exception ex = null;
         try {

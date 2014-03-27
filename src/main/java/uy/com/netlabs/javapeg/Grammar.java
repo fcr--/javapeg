@@ -6,9 +6,13 @@
 package uy.com.netlabs.javapeg;
 
 import java.util.ArrayList;
+import static java.util.Collections.EMPTY_LIST;
 import java.util.HashMap;
 import java.util.List;
+import uy.com.netlabs.javapeg.util.FastSnocList;
+import uy.com.netlabs.javapeg.util.Function1;
 import uy.com.netlabs.javapeg.util.Function2;
+import uy.com.netlabs.javapeg.util.Pair;
 
 /**
  *
@@ -33,47 +37,36 @@ public abstract class Grammar<T> {
     // MATCH SECTION:
     //======================================================================
     public final ParserResult match(String text) {
-        return match(text, null);
+        Options opts = new Options();
+        opts.skipProcessing = true;
+        return matchProcessing(text, 0, opts).getLeft();
     }
 
-    public final ParserResult match(String text, ArrayList<T> tags) {
-        Options opts = this.new Options();
-        if (tags == null) {
-            return match(text, 0, opts);
-        }
-        opts.processedTags = tags;
-        tags.clear();
-        ParserResult res = match(text, 0, opts);
-        tags.addAll(opts.processedTags);
-        return res;
+    public final Pair<ParserResult, List<T>> matchProcessing(String text) {
+        return matchProcessing(text, 0, new Options());
     }
 
-    protected ParserResult match(String text, int idx, Options opts) {
+    public final Pair<ParserResult, List<T>> matchProcessing(String text, int idx, Options opts) {
         Integer prevIdx = opts.positionsForLeftRecursionDetection.get(this);
         if (prevIdx != null && prevIdx == idx) {
             throw new IllegalStateException("Left recursion detected.");
         }
         opts.positionsForLeftRecursionDetection.put(this, idx);
-        if (opts.processedTags == null) {
-            ParserResult res = matchImpl(text, idx, opts);
-            opts.positionsForLeftRecursionDetection.put(this, prevIdx);
-            return res;
-        }
-        List<T> oldTags = opts.processedTags;
-        ParserResult res = matchImpl(text, idx, opts);
-        System.out.println(":text=" + text + ", idx=" + idx + ", res=" + res + ", rf=" + reduceFunction + ", tags=" + opts.processedTags);
-        if (res instanceof ParserResult.AstNode) {
-            if (reduceFunction != null) {
-                opts.processedTags = reduceFunction.reduce(text, (ParserResult.AstNode) res, opts.processedTags);
-            }
+        Pair<ParserResult, List<T>> res = matchProcessingImpl(text, idx, opts);
+//        System.out.println(":text=" + text + ", idx=" + idx + ", res=" + res + ", rf=" + reduceFunction + ", tags=" + res.getRight());
+        List<T> newTags;
+        if (!(res.getLeft() instanceof ParserResult.AstNode) || opts.skipProcessing) {
+            newTags = EMPTY_LIST;
+        } else if (reduceFunction == null) {
+            newTags = res.getRight();
         } else {
-            opts.processedTags = oldTags;
+            newTags = reduceFunction.reduce(text, (ParserResult.AstNode) res.getLeft(), res.getRight());
         }
         opts.positionsForLeftRecursionDetection.put(this, prevIdx);
-        return res;
+        return new Pair<>(res.getLeft(), newTags);
     }
 
-    protected abstract ParserResult matchImpl(String text, int idx, Options opts);
+    protected abstract Pair<ParserResult, List<T>> matchProcessingImpl(String text, int idx, Options opts);
 
     //======================================================================
     // HAS_EPSILON SECTION:
@@ -82,10 +75,10 @@ public abstract class Grammar<T> {
         if (hasEpsilon != null) {
             return hasEpsilon;
         }
-        final HashMap<Grammar<T>, Integer> processing = new HashMap<>();
-        final Function2<Grammar<T>, Integer, Boolean> proxy = new Function2<Grammar<T>, Integer, Boolean>() {
+        final HashMap<Grammar, Integer> processing = new HashMap<>();
+        final Function2<Grammar, Integer, Boolean> proxy = new Function2<Grammar, Integer, Boolean>() {
             @Override
-            public Boolean apply(Grammar<T> g, Integer nonEmptyCount) {
+            public Boolean apply(Grammar g, Integer nonEmptyCount) {
                 Integer previousNonEmptyCount = processing.get(g);
                 if (previousNonEmptyCount != null) {
                     return nonEmptyCount != previousNonEmptyCount;
@@ -99,12 +92,12 @@ public abstract class Grammar<T> {
         return hasEpsilon(proxy, 0);
     }
 
-    protected abstract boolean hasEpsilon(Function2<Grammar<T>, Integer, Boolean> proxy, Integer nonEmptyCount);
+    protected abstract boolean hasEpsilon(Function2<Grammar, Integer, Boolean> proxy, Integer nonEmptyCount);
 
-    protected class Options {
+    protected static class Options {
 
-        public List<T> processedTags = null;
-        public HashMap<Grammar<T>, Integer> positionsForLeftRecursionDetection = new HashMap<>();
+        public HashMap<Grammar, Integer> positionsForLeftRecursionDetection = new HashMap<>();
+        public boolean skipProcessing = false;
     }
 
     //======================================================================
@@ -119,18 +112,18 @@ public abstract class Grammar<T> {
         }
 
         @Override
-        public ParserResult matchImpl(String text, int idx, Options opts) {
+        public Pair<ParserResult, List<T>> matchProcessingImpl(String text, int idx, Options opts) {
             int endIdx = idx + this.text.length();
             ParserResult res;
             if (endIdx <= text.length() && text.substring(idx, endIdx).equals(this.text)) {
-                return new ParserResult.AstNode(idx, this.text.length());
+                return new Pair(new ParserResult.AstNode(idx, this.text.length()), EMPTY_LIST);
             } else {
-                return new ParserResult.Failure(idx, this.text);
+                return new Pair(new ParserResult.Failure(idx, this.text), EMPTY_LIST);
             }
         }
 
         @Override
-        protected boolean hasEpsilon(Function2<Grammar<T>, Integer, Boolean> proxy, Integer nonEmptyCount) {
+        protected boolean hasEpsilon(Function2<Grammar, Integer, Boolean> proxy, Integer nonEmptyCount) {
             return text.length() == 0;
         }
     }
@@ -138,16 +131,16 @@ public abstract class Grammar<T> {
     public static class DotGrammar<T> extends Grammar<T> {
 
         @Override
-        protected ParserResult matchImpl(String text, int idx, Options opts) {
+        protected Pair<ParserResult, List<T>> matchProcessingImpl(String text, int idx, Options opts) {
             if (idx < text.length()) {
-                return new ParserResult.AstNode(idx, 1);
+                return new Pair(new ParserResult.AstNode(idx, 1), EMPTY_LIST);
             } else {
-                return new ParserResult.Failure(idx, "any char");
+                return new Pair(new ParserResult.Failure(idx, "any char"), EMPTY_LIST);
             }
         }
 
         @Override
-        protected boolean hasEpsilon(Function2<Grammar<T>, Integer, Boolean> proxy, Integer nonEmptyCount) {
+        protected boolean hasEpsilon(Function2<Grammar, Integer, Boolean> proxy, Integer nonEmptyCount) {
             return false;
         }
     }
@@ -163,20 +156,20 @@ public abstract class Grammar<T> {
         }
 
         @Override
-        protected ParserResult matchImpl(String text, int idx, Options opts) {
+        protected Pair<ParserResult, List<T>> matchProcessingImpl(String text, int idx, Options opts) {
             if (idx >= text.length()) {
-                return new ParserResult.Failure(idx, "char from '" + from + "' to '" + to + "'");
+                return new Pair(new ParserResult.Failure(idx, "char from '" + from + "' to '" + to + "'"), EMPTY_LIST);
             }
             char c = text.charAt(idx);
             if (from <= c && c <= to) {
-                return new ParserResult.AstNode(idx, 1);
+                return new Pair(new ParserResult.AstNode(idx, 1), EMPTY_LIST);
             } else {
-                return new ParserResult.Failure(idx, "char from '" + from + "' to '" + to + "'");
+                return new Pair(new ParserResult.Failure(idx, "char from '" + from + "' to '" + to + "'"), EMPTY_LIST);
             }
         }
 
         @Override
-        protected boolean hasEpsilon(Function2<Grammar<T>, Integer, Boolean> proxy, Integer nonEmptyCount) {
+        protected boolean hasEpsilon(Function2<Grammar, Integer, Boolean> proxy, Integer nonEmptyCount) {
             return false;
         }
     }
@@ -191,25 +184,27 @@ public abstract class Grammar<T> {
         }
 
         @Override
-        protected ParserResult matchImpl(String text, int idx, Options opts) {
+        protected Pair<ParserResult, List<T>> matchProcessingImpl(String text, int idx, Options opts) {
             int length = 0;
+            List<T> tags = EMPTY_LIST;
             ParserResult.AstNode[] nodes = new ParserResult.AstNode[children.length];
             for (int i = 0; i < children.length; i++) {
-                ParserResult res = children[i].match(text, idx + length, opts);
-                if (!(res instanceof ParserResult.AstNode)) {
+                Pair<ParserResult, List<T>> res = children[i].matchProcessing(text, idx + length, opts);
+                if (!(res.getLeft() instanceof ParserResult.AstNode)) {
                     return res;
-                } else if (res instanceof ParserResult.AstNode) {
-                    nodes[i] = (ParserResult.AstNode) res;
+                } else if (res.getLeft() instanceof ParserResult.AstNode) {
+                    nodes[i] = (ParserResult.AstNode) res.getLeft();
+                    tags = FastSnocList.snocAll(tags, res.getRight());
                     length += nodes[i].getLength();
                 } else {
                     throw new IllegalStateException("invalid match response type");
                 }
             }
-            return new ParserResult.AstNode(idx, length, nodes);
+            return new Pair(new ParserResult.AstNode(idx, length, nodes), tags);
         }
 
         @Override
-        protected boolean hasEpsilon(Function2<Grammar<T>, Integer, Boolean> proxy, Integer nonEmptyCount) {
+        protected boolean hasEpsilon(Function2<Grammar, Integer, Boolean> proxy, Integer nonEmptyCount) {
             for (Grammar<T> child: children) {
                 if (!child.hasEpsilon()) {
                     return false;
@@ -229,25 +224,24 @@ public abstract class Grammar<T> {
         }
 
         @Override
-        protected ParserResult matchImpl(String text, int idx, Options opts) {
+        protected Pair<ParserResult, List<T>> matchProcessingImpl(String text, int idx, Options opts) {
             ParserResult.Failure failedRes = null;
             for (Grammar<T> child: children) {
-                ParserResult res = child.match(text, idx, opts);
-                if (res instanceof ParserResult.AstNode) {
-                    ParserResult.AstNode node = (ParserResult.AstNode) res;
-                    return new ParserResult.AstNode(idx, node.getLength(), new ParserResult.AstNode[]{node});
-                } else if (res instanceof ParserResult.Failure) {
-                    ParserResult.Failure failure = (ParserResult.Failure) res;
+                Pair<ParserResult, List<T>> res = child.matchProcessing(text, idx, opts);
+                if (res.getLeft().isMatched()) {
+                    return res;
+                } else if (res.getLeft() instanceof ParserResult.Failure) {
+                    ParserResult.Failure failure = (ParserResult.Failure) res.getLeft();
                     failedRes = ParserResult.Failure.merge(failedRes, failure);
                 } else {
                     throw new IllegalStateException("invalid match response type");
                 }
             }
-            return failedRes;
+            return new Pair(failedRes, EMPTY_LIST);
         }
 
         @Override
-        protected boolean hasEpsilon(Function2<Grammar<T>, Integer, Boolean> proxy, Integer nonEmptyCount) {
+        protected boolean hasEpsilon(Function2<Grammar, Integer, Boolean> proxy, Integer nonEmptyCount) {
             for (Grammar<T> child: children) {
                 if (child.hasEpsilon()) {
                     return true;
@@ -271,19 +265,21 @@ public abstract class Grammar<T> {
         }
 
         @Override
-        protected ParserResult matchImpl(String text, int idx, Options opts) {
+        protected Pair<ParserResult, List<T>> matchProcessingImpl(String text, int idx, Options opts) {
             int initialIdx = idx;
+            List<T> tags = EMPTY_LIST;
             List<ParserResult.AstNode> nodes = new ArrayList<>(Math.min(max, 10));
             while (nodes.size() < max) {
-                ParserResult res = child.match(text, idx, opts);
-                if (res instanceof ParserResult.AstNode) {
-                    ParserResult.AstNode node = (ParserResult.AstNode) res;
+                Pair<ParserResult, List<T>> res = child.matchProcessing(text, idx, opts);
+                if (res.getLeft() instanceof ParserResult.AstNode) {
+                    ParserResult.AstNode node = (ParserResult.AstNode) res.getLeft();
                     nodes.add(node);
+                    tags = FastSnocList.snocAll(tags, res.getRight());
                     idx += node.getLength();
                     if (node.getLength() == 0 && max == Integer.MAX_VALUE) {
                         throw new IllegalStateException("infinite loop after infinite epsilon match");
                     }
-                } else if (res instanceof ParserResult.Failure) {
+                } else if (res.getLeft() instanceof ParserResult.Failure) {
                     if (nodes.size() < min) {
                         return res;
                     }
@@ -292,11 +288,12 @@ public abstract class Grammar<T> {
                     throw new IllegalStateException("invalid match response type");
                 }
             }
-            return new ParserResult.AstNode(initialIdx, idx - initialIdx, nodes.toArray(new ParserResult.AstNode[nodes.size()]));
+            return new Pair(new ParserResult.AstNode(initialIdx, idx - initialIdx,
+                    nodes.toArray(new ParserResult.AstNode[nodes.size()])), tags);
         }
 
         @Override
-        protected boolean hasEpsilon(Function2<Grammar<T>, Integer, Boolean> proxy, Integer nonEmptyCount) {
+        protected boolean hasEpsilon(Function2<Grammar, Integer, Boolean> proxy, Integer nonEmptyCount) {
             return min == 0 || child.hasEpsilon();
         }
     }
@@ -310,17 +307,18 @@ public abstract class Grammar<T> {
         }
 
         @Override
-        protected ParserResult matchImpl(String text, int idx, Options opts) {
-            ParserResult res = child.match(text, idx, opts);
-            if (res instanceof ParserResult.AstNode) {
-                return new ParserResult.AstNode(idx, 0, new ParserResult.AstNode[]{(ParserResult.AstNode) res});
+        protected Pair<ParserResult, List<T>> matchProcessingImpl(String text, int idx, Options opts) {
+            Pair<ParserResult, List<T>> res = child.matchProcessing(text, idx, opts);
+            if (res.getLeft() instanceof ParserResult.AstNode) {
+                return new Pair(new ParserResult.AstNode(idx, 0,
+                        new ParserResult.AstNode[]{(ParserResult.AstNode) res.getLeft()}), EMPTY_LIST);
             } else {
                 return res;
             }
         }
 
         @Override
-        protected boolean hasEpsilon(Function2<Grammar<T>, Integer, Boolean> proxy, Integer nonEmptyCount) {
+        protected boolean hasEpsilon(Function2<Grammar, Integer, Boolean> proxy, Integer nonEmptyCount) {
             return true;
         }
     }
@@ -334,17 +332,17 @@ public abstract class Grammar<T> {
         }
 
         @Override
-        protected ParserResult matchImpl(String text, int idx, Options opts) {
-            ParserResult res = child.match(text, idx, opts);
-            if (res instanceof ParserResult.AstNode) {
-                return new ParserResult.Failure(idx, "<negative lookahead>");
+        protected Pair<ParserResult, List<T>> matchProcessingImpl(String text, int idx, Options opts) {
+            Pair<ParserResult, List<T>> res = child.matchProcessing(text, idx, opts);
+            if (res.getLeft() instanceof ParserResult.AstNode) {
+                return new Pair(new ParserResult.Failure(idx, "<negative lookahead>"), EMPTY_LIST);
             } else {
-                return new ParserResult.AstNode(idx, 0);
+                return new Pair(new ParserResult.AstNode(idx, 0), EMPTY_LIST);
             }
         }
 
         @Override
-        protected boolean hasEpsilon(Function2<Grammar<T>, Integer, Boolean> proxy, Integer nonEmptyCount) {
+        protected boolean hasEpsilon(Function2<Grammar, Integer, Boolean> proxy, Integer nonEmptyCount) {
             return true;
         }
     }
@@ -361,12 +359,12 @@ public abstract class Grammar<T> {
         }
 
         @Override
-        protected ParserResult matchImpl(String text, int idx, Options opts) {
-            return child.match(text, idx, opts);
+        protected Pair<ParserResult, List<T>> matchProcessingImpl(String text, int idx, Options opts) {
+            return child.matchProcessing(text, idx, opts);
         }
 
         @Override
-        protected boolean hasEpsilon(Function2<Grammar<T>, Integer, Boolean> proxy, Integer nonEmptyCount) {
+        protected boolean hasEpsilon(Function2<Grammar, Integer, Boolean> proxy, Integer nonEmptyCount) {
             return child.hasEpsilon();
         }
     }
@@ -383,6 +381,32 @@ public abstract class Grammar<T> {
                 children[i] = new TextGrammar<>(strings[i]);
             }
             return children;
+        }
+    }
+
+    public static class AdapterGrammar<T, S> extends Grammar<S> {
+
+        private final Grammar<T> gram;
+        private final Function1<T, S> adapterFunction;
+
+        public AdapterGrammar(Grammar<T> gram, Function1<T, S> adapterFunction) {
+            this.gram = gram;
+            this.adapterFunction = adapterFunction;
+        }
+
+        @Override
+        protected Pair<ParserResult, List<S>> matchProcessingImpl(String text, int idx, Options opts) {
+            Pair<ParserResult, List<T>> res = gram.matchProcessing(text, idx, opts);
+            ArrayList<S> newTags = new ArrayList(res.getRight());
+            for (T tag: res.getRight()) {
+                newTags.add(adapterFunction.apply(tag));
+            }
+            return new Pair(res.getLeft(), newTags);
+        }
+
+        @Override
+        protected boolean hasEpsilon(Function2<Grammar, Integer, Boolean> proxy, Integer nonEmptyCount) {
+            return gram.hasEpsilon(proxy, nonEmptyCount);
         }
     }
 }

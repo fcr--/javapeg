@@ -6,6 +6,7 @@
 package uy.com.netlabs.javapeg.util;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -54,21 +55,22 @@ public class FastSnocList<V> implements List<V> {
         if (flattenedList != null) {
             return;
         }
-        flattenedList = new ArrayList(len);
-        flattenedList.set(len - 1, lastElement);
+        V[] flattenedListArray = (V[]) new Object[len];
+        flattenedListArray[len - 1] = lastElement;
         List<V> initList = init;
         for (int i = len - 2; i >= 0; i--) {
             if (!(initList instanceof FastSnocList)) {
                 int j = 0;
                 for (V v: initList) {
-                    flattenedList.set(j++, v);
+                    flattenedListArray[j++] = v;
                 }
                 break;
             }
             FastSnocList<V> castedInitList = (FastSnocList<V>) initList;
-            flattenedList.set(i, castedInitList.lastElement);
+            flattenedListArray[i] = castedInitList.lastElement;
             initList = castedInitList.init;
         }
+        flattenedList = new ArrayList(Arrays.asList(flattenedListArray));
         // delete references allowing garbage collection:
         init = null;
         lastElement = null;
@@ -236,11 +238,25 @@ public class FastSnocList<V> implements List<V> {
         return flattenedList.subList(fromIndex, toIndex);
     }
 
+    @Override
+    public String toString() {
+        flattenList();
+        return flattenedList.toString();
+    }
+
     public FastSnocList<V> snoc(V last) {
         return FastSnocList.snoc(this, last);
     }
 
     public static <V> FastSnocList<V> snoc(List<V> init, V last) {
         return new FastSnocList<>(init.size() + 1, init, last);
+    }
+
+    public static <V> List<V> snocAll(List<V> init, List<V> last) {
+        int len = init.size();
+        for (V v: last) {
+            init = new FastSnocList<>(++len, init, v);
+        }
+        return init;
     }
 }
